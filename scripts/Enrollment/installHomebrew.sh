@@ -17,17 +17,25 @@
 #
 # See LICENSE
 #
+# 1.1 - changed line 30 to not use python
+# 1.2 - adding export to PATH
+#
+# TO-DOs:
+#  - check for current user's shell and add to PATH
 
 # Check if Apple Silicon
 if [ "$(uname -m)" == "arm64" ]; then
 	IS_ARM=1
 	BREW_BIN_PATH="/opt/homebrew/bin"
-  ConsoleUser="$( echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )"
 else
 	IS_ARM=0
 	BREW_BIN_PATH="/usr/local/bin"
-  ConsoleUser="$(/usr/bin/python -c 'from SystemConfiguration import SCDynamicStoreCopyConsoleUser; import sys; username = (SCDynamicStoreCopyConsoleUser(None, None, None) or [None])[0]; username = [username,""][username in [u"loginwindow", None, u""]]; sys.stdout.write(username + "\n");')"
 fi
+
+# current user
+ConsoleUser="$( echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )"
+# current user homedir
+currentUserHome=$(/usr/bin/dscl . -read "/Users/$ConsoleUser" NFSHomeDirectory | /usr/bin/awk ' { print $NF } ')
 
 ### Script from rtrouton ###
 # Source: https://github.com/ryangball/rtrouton_scripts/blob/main/rtrouton_scripts/install_xcode_command_line_tools/install_xcode_command_line_tools.sh
@@ -106,6 +114,10 @@ if test ! "$(sudo -u ${ConsoleUser} which brew)"; then
 
       # Symlink Homebrew to the usual place
       ln -s /usr/local/Homebrew/bin/brew /usr/local/bin/brew
+      
+      # add to current user's PATH
+      echo 'export PATH="/usr/local/Homebrew/bin:$PATH"' >> "$currentUserHome"/.zshrc
+
     else
       echo "Installing arm64 Homebrew..."
       /bin/mkdir -p /opt/homebrew
@@ -132,6 +144,10 @@ if test ! "$(sudo -u ${ConsoleUser} which brew)"; then
 
       /bin/chmod -Rf u+rwx /opt/homebrew
       /usr/sbin/chown -Rf ${ConsoleUser}:staff /opt/homebrew
+      
+      # add to current user's PATH
+      echo 'export PATH="/opt/homebrew/bin:$PATH"' >> "$currentUserHome"/.zshrc
+      
     fi
     # Run an initial update
     sudo -H -iu ${ConsoleUser} ${BREW_BIN_PATH}/brew update  </dev/null
