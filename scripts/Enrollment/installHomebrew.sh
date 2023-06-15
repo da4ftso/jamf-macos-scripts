@@ -1,5 +1,11 @@
 #!/bin/bash
-#
+
+# fork from https://github.com/route1337/jamf-macos-scripts/blob/main/scripts/Enrollment/installHomebrew.sh
+# replaced various sudo with runAsUser
+# replaced CurrentUser from python to show State:
+# full path to all chmod, chown etc
+# proper output suppression for xcodebuild
+
 # Script Name: installHomebrew.sh
 # Function: Deploy Homebrew (brew.sh) to the first user added to a new Mac during the post-DEP enrollment DEPNotify run
 # Requirements: DEP, Jamf
@@ -17,11 +23,6 @@
 #
 # See LICENSE
 #
-# 1.1 - changed line 30 to not use python
-# 1.2 - adding export to PATH
-#
-# TO-DOs:
-#  - check for current user's shell and add to PATH
 
 # Check if Apple Silicon
 if [ "$(uname -m)" == "arm64" ]; then
@@ -34,8 +35,20 @@ fi
 
 # current user
 ConsoleUser="$( echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )"
-# current user homedir
-currentUserHome=$(/usr/bin/dscl . -read "/Users/$ConsoleUser" NFSHomeDirectory | /usr/bin/awk ' { print $NF } ')
+
+# uid
+uid=$(id -u "$ConsoleUser")
+
+runAsUser() {  
+  if [ "$ConsoleUser" != "loginwindow" ]; then
+    launchctl asuser "$uid" sudo -u "$ConsoleUser" "$@"
+  else
+    echo "no user logged in"
+    # uncomment the exit command
+    # to make the function exit with an error when no user is logged in
+    # exit 1
+  fi
+} 
 
 ### Script from rtrouton ###
 # Source: https://github.com/ryangball/rtrouton_scripts/blob/main/rtrouton_scripts/install_xcode_command_line_tools/install_xcode_command_line_tools.sh
@@ -72,7 +85,7 @@ if [[ ( ${osvers_major} -eq 10 && ${osvers_minor} -ge 9 ) || ( ${osvers_major} -
 
 	if (( $(grep -c . <<<"$cmd_line_tools") > 1 )); then
 	   cmd_line_tools_output="$cmd_line_tools"
-	   cmd_line_tools=$(printf "$cmd_line_tools_output" | tail -1)
+	   cmd_line_tools=$(printf '..%s..' "$cmd_line_tools_output" | tail -1)
 	fi
 	#Install the command line tools
 	softwareupdate -i "$cmd_line_tools" --verbose
@@ -81,12 +94,16 @@ if [[ ( ${osvers_major} -eq 10 && ${osvers_minor} -ge 9 ) || ( ${osvers_major} -
 	  rm "$cmd_line_tools_temp_file"
 	fi
 fi
+
+# temporarily add exclusions to mdatp? nope, managed from console
+# /usr/local/bin/mdatp exclusion folder add --path /usr/local/*
+
 ### Script from rtrouton ###
 
 # Test if Homebrew is installed and install it if it is not
 ### INSTALL HOMEBREW ###
 echo "Checking if Homebrew is installed..."
-if test ! "$(sudo -u ${ConsoleUser} which brew)"; then
+if test ! "$(sudo -u "${ConsoleUser}" which brew)"; then
     if [[ "$IS_ARM" == 0 ]];then
       echo "Installing x86_64 Homebrew..."
       # Manually install the initial Homebrew
@@ -98,26 +115,23 @@ if test ! "$(sudo -u ${ConsoleUser} which brew)"; then
       /bin/mkdir -p /usr/local/include /usr/local/lib /usr/local/opt /usr/local/sbin /usr/local/var/homebrew/linked
       /bin/mkdir -p /usr/local/share/zsh/site-functions /usr/local/var
       /bin/mkdir -p /usr/local/share/doc /usr/local/man/man1 /usr/local/share/man/man1
-      /usr/sbin/chown -R $ConsoleUser:admin /usr/local/*
+      # /usr/local/bin/mdatp exclusion folder add --path /usr/local/* # temporarily add exclusions to mdatp
+      /usr/sbin/chown -R "$ConsoleUser":admin /usr/local/*
       /bin/chmod -Rf g+rwx /usr/local/*
       /bin/chmod 755 /usr/local/share/zsh /usr/local/share/zsh/site-functions
 
       # Cache directories
-      mkdir -p /Library/Caches/Homebrew
-      chmod g+rwx /Library/Caches/Homebrew
-      chown $ConsoleUser:staff /Library/Caches/Homebrew
+      /bin/mkdir -p /Library/Caches/Homebrew
+      /bin/chmod g+rwx /Library/Caches/Homebrew
+      /usr/sbin/chown "$ConsoleUser":staff /Library/Caches/Homebrew
 
       # Create a system wide cache folder
-      mkdir -p /Library/Caches/Homebrew
-      chmod g+rwx /Library/Caches/Homebrew
-      chown $ConsoleUser:staff /Library/Caches/Homebrew
+      /bin/mkdir -p /Library/Caches/Homebrew
+      /bin/chmod g+rwx /Library/Caches/Homebrew
+      /usr/sbin/chown "$ConsoleUser":staff /Library/Caches/Homebrew
 
       # Symlink Homebrew to the usual place
       ln -s /usr/local/Homebrew/bin/brew /usr/local/bin/brew
-      
-      # add to current user's PATH
-      echo 'export PATH="/usr/local/Homebrew/bin:$PATH"' >> "$currentUserHome"/.zshrc
-
     else
       echo "Installing arm64 Homebrew..."
       /bin/mkdir -p /opt/homebrew
@@ -128,36 +142,37 @@ if test ! "$(sudo -u ${ConsoleUser} which brew)"; then
       /bin/mkdir -p /opt/homebrew/include /opt/homebrew/lib /opt/homebrew/opt /opt/homebrew/sbin /opt/homebrew/var/homebrew/linked
       /bin/mkdir -p /opt/homebrew/share/zsh/site-functions /opt/homebrew/var
       /bin/mkdir -p /opt/homebrew/share/doc /opt/homebrew/man/man1 /opt/homebrew/share/man/man1
-      /usr/sbin/chown -R $ConsoleUser:admin /opt/homebrew/*
+      # /usr/local/bin/mdatp exclusion folder add --path /opt/homebrew/* # temporarily add exclusions to mdatp
+      /usr/sbin/chown -R "$ConsoleUser":admin /opt/homebrew/*
       /bin/chmod -Rf g+rwx /opt/homebrew/*
       /bin/chmod 755 /opt/homebrew/share/zsh /opt/homebrew/share/zsh/site-functions
 
       # Cache directories
-      mkdir -p /Library/Caches/Homebrew
-      chmod g+rwx /Library/Caches/Homebrew
-      chown $ConsoleUser:staff /Library/Caches/Homebrew
+      /bin/mkdir -p /Library/Caches/Homebrew
+      /bin/chmod g+rwx /Library/Caches/Homebrew
+      /usr/sbin/chown "$ConsoleUser":staff /Library/Caches/Homebrew
 
       # Create a system wide cache folder
-      mkdir -p /Library/Caches/Homebrew
-      chmod g+rwx /Library/Caches/Homebrew
-      chown $ConsoleUser:staff /Library/Caches/Homebrew
+      /bin/mkdir -p /Library/Caches/Homebrew
+      /bin/chmod g+rwx /Library/Caches/Homebrew
+      /usr/sbin/chown "$ConsoleUser":staff /Library/Caches/Homebrew
 
       /bin/chmod -Rf u+rwx /opt/homebrew
-      /usr/sbin/chown -Rf ${ConsoleUser}:staff /opt/homebrew
-      
-      # add to current user's PATH
-      echo 'export PATH="/opt/homebrew/bin:$PATH"' >> "$currentUserHome"/.zshrc
-      
+      /usr/sbin/chown -Rf "${ConsoleUser}":staff /opt/homebrew
     fi
     # Run an initial update
-    sudo -H -iu ${ConsoleUser} ${BREW_BIN_PATH}/brew update  </dev/null
+    runAsUser ${BREW_BIN_PATH}/brew update 2> /dev/null
     # Disable Homebrew analytics
-    sudo -H -iu ${ConsoleUser} ${BREW_BIN_PATH}/brew analytics off  </dev/null
+    runAsUser ${BREW_BIN_PATH}/brew analytics off  2> /dev/null
     # Disable Homebrew analytics
-    sudo -H -iu ${ConsoleUser} ${BREW_BIN_PATH}/brew tap homebrew/cask  </dev/null
-
+    runAsUser ${BREW_BIN_PATH}/brew tap homebrew/cask 2> /dev/null
+    # TEST approve xcodebuild license
+    runAsUser /usr/bin/xcodebuild -license accept || true
+    # add to PATH
+    # sudo -H -iu ${ConsoleUser} echo 'export PATH=${BREW_BIN_PATH}:$PATH"' >> ${ConsoleUserHome}/.zshrc
 
 else
     echo "Homebrew already installed."
 fi
+
 ### END INSTALL HOMEBREW ###
